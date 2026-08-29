@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bruselle Admin</title>
+<style>
+  :root{ --ink:#16140f; --canvas:#f1ead9; --oxblood:#7a2e2e; --gold:#b08d3e; --line:#ddd3ba; }
+  *{box-sizing:border-box;}
+  body{ font-family:system-ui, sans-serif; background:var(--canvas); color:var(--ink); margin:0; padding:32px 20px; }
+  .wrap{ max-width:760px; margin:0 auto; }
+  h1{ font-size:1.6rem; margin-bottom:6px; }
+  p.sub{ color:#665; margin-top:0; font-size:0.9rem; }
+  fieldset{ border:1px solid var(--line); border-radius:6px; padding:20px; margin-bottom:28px; background:#fffdf8; }
+  legend{ padding:0 8px; font-weight:600; }
+  label{ display:block; font-size:0.82rem; margin:12px 0 4px; }
+  input[type=text], input[type=number], input[type=password], textarea{
+    width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:4px; font-size:0.9rem; font-family:inherit;
+  }
+  input[type=file]{ margin-top:4px; }
+  button{
+    margin-top:16px; background:var(--ink); color:var(--canvas); border:none;
+    padding:11px 22px; border-radius:4px; cursor:pointer; font-size:0.85rem;
+  }
+  button:hover{ background:var(--oxblood); }
+  #status{ font-size:0.85rem; margin-top:10px; white-space:pre-wrap; }
+  .product-list{ list-style:none; padding:0; }
+  .product-list li{
+    display:flex; gap:14px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line);
+  }
+  .product-list img{ width:52px; height:52px; object-fit:cover; border-radius:4px; background:#eee; }
+  .product-list .meta{ flex:1; font-size:0.85rem; }
+  .product-list button{ margin:0; padding:6px 12px; font-size:0.75rem; background:#a33; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Bruselle — Admin</h1>
+  <p class="sub">Add products (with a photo) and view incoming orders. This page is not linked from the public site — bookmark this URL.</p>
+
+  <fieldset>
+    <legend>Admin key</legend>
+    <label for="adminKey">Enter your ADMIN_KEY (set in the backend's .env file)</label>
+    <input type="password" id="adminKey" placeholder="admin key">
+  </fieldset>
+
+  <fieldset>
+    <legend>Add a product</legend>
+    <form id="productForm">
+      <label>Name</label>
+      <input type="text" name="name" required placeholder="The Wildfire Tee">
+      <label>Swatch code</label>
+      <input type="text" name="code" required placeholder="No.01 · Oxblood Wash">
+      <label>Price (৳)</label>
+      <input type="number" name="price" required min="0">
+      <label>Description (optional)</label>
+      <textarea name="description" rows="3"></textarea>
+      <label>Photo</label>
+      <input type="file" name="image" accept="image/png, image/jpeg, image/webp">
+      <button type="submit">Add product</button>
+    </form>
+    <div id="status"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Current products</legend>
+    <ul class="product-list" id="productList"></ul>
+  </fieldset>
+</div>
+
+<script>
+  // Point this at your deployed backend URL once it's live (e.g. https://bruselle-api.onrender.com)
+  const API_BASE = window.location.origin;
+
+  const form = document.getElementById('productForm');
+  const statusEl = document.getElementById('status');
+  const listEl = document.getElementById('productList');
+  const keyInput = document.getElementById('adminKey');
+
+  async function loadProducts(){
+    const res = await fetch(`${API_BASE}/api/products`);
+    const products = await res.json();
+    listEl.innerHTML = '';
+    products.forEach(p => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <img src="${p.imagePath ? API_BASE + p.imagePath : ''}" alt="">
+        <div class="meta"><strong>${p.name}</strong><br>${p.code} — ৳${p.price}</div>
+        <button data-id="${p._id}">Delete</button>
+      `;
+      li.querySelector('button').addEventListener('click', () => deleteProduct(p._id));
+      listEl.appendChild(li);
+    });
+  }
+
+  async function deleteProduct(id){
+    if(!keyInput.value) return alert('Enter the admin key first.');
+    const res = await fetch(`${API_BASE}/api/products/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-key': keyInput.value }
+    });
+    if(res.ok){ loadProducts(); } else { alert('Delete failed — check the admin key.'); }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if(!keyInput.value){ statusEl.textContent = 'Enter the admin key first.'; return; }
+
+    const formData = new FormData(form);
+    statusEl.textContent = 'Uploading...';
+
+    try{
+      const res = await fetch(`${API_BASE}/api/products`, {
+        method: 'POST',
+        headers: { 'x-admin-key': keyInput.value },
+        body: formData
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'Failed to add product');
+      statusEl.textContent = 'Added: ' + data.name;
+      form.reset();
+      loadProducts();
+    }catch(err){
+      statusEl.textContent = 'Error: ' + err.message;
+    }
+  });
+
+  loadProducts();
+</script>
+</body>
+</html>
