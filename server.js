@@ -19,7 +19,6 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow tools like curl/Postman (no origin) and any listed origin
       if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -29,7 +28,7 @@ app.use(
 );
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use(express.static(path.join(__dirname, 'public'))); // serves admin.html
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- Routes ----------
 app.use('/api/products', productRoutes);
@@ -40,6 +39,9 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---------- Start ----------
+const maskedUri = (process.env.MONGODB_URI || 'MISSING').replace(/:([^:@]+)@/, ':****@');
+console.log('Using MONGODB_URI:', maskedUri);
+
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => {
@@ -48,5 +50,7 @@ mongoose
   })
   .catch((err) => {
     console.error('MongoDB connection failed:', err.message);
+    if (err.reason) console.error('Reason detail:', JSON.stringify(err.reason, null, 2));
+    if (err.cause) console.error('Cause detail:', err.cause);
     process.exit(1);
   });
