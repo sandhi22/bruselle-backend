@@ -50,7 +50,10 @@ mongoose
   })
   .catch((err) => {
     console.error('MongoDB connection failed:', err.message);
-    if (err.reason) console.error('Reason detail:', JSON.stringify(err.reason, null, 2));
-    if (err.cause) console.error('Cause detail:', err.cause);
+    if (err.reason && err.reason.servers) {
+      for (const [addr, desc] of err.reason.servers) {
+        console.error(`Server ${addr} ->`, desc.error ? desc.error.message : 'no error detail', desc.error ? desc.error.code : '');
+      }
+    }
     process.exit(1);
   });
