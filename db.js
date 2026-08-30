@@ -16,6 +16,8 @@ async function initDb() {
       price NUMERIC NOT NULL,
       description TEXT DEFAULT '',
       image_path TEXT DEFAULT '',
+      image_data TEXT DEFAULT '',
+      image_type TEXT DEFAULT '',
       in_stock BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT NOW()
     );
