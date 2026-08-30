@@ -1,9 +1,9 @@
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 
+const { pool, initDb } = require('./db');
 const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 
@@ -39,21 +39,17 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---------- Start ----------
-const maskedUri = (process.env.MONGODB_URI || 'MISSING').replace(/:([^:@]+)@/, ':****@');
-console.log('Using MONGODB_URI:', maskedUri);
-
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
+async function start() {
+  try {
+    await pool.query('SELECT NOW()');
+    console.log('Connected to PostgreSQL');
+    await initDb();
+    console.log('Database tables ready');
     app.listen(PORT, () => console.log(`Bruselle backend running on port ${PORT}`));
-  })
-  .catch((err) => {
-    console.error('MongoDB connection failed:', err.message);
-    if (err.reason && err.reason.servers) {
-      for (const [addr, desc] of err.reason.servers) {
-        console.error(`Server ${addr} ->`, desc.error ? desc.error.message : 'no error detail', desc.error ? desc.error.code : '');
-      }
-    }
+  } catch (err) {
+    console.error('Database connection failed:', err.message);
     process.exit(1);
-  });
+  }
+}
+
+start();

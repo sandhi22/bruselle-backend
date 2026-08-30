@@ -1,10 +1,22 @@
 const express = require('express');
-const Order = require('../models/Order');
+const { pool } = require('../db');
 const adminAuth = require('../middleware/adminAuth');
 
 const router = express.Router();
 
-// POST /api/orders - customer places an order (status starts as "pending")
+function toApiShape(row) {
+  return {
+    _id: row.id,
+    items: row.items,
+    total: Number(row.total),
+    customerName: row.customer_name,
+    phone: row.phone,
+    address: row.address,
+    status: row.status,
+    paymentMeta: row.payment_meta,
+  };
+}
+
 router.post('/', async (req, res) => {
   try {
     const { items, customerName, phone, address } = req.body;
@@ -18,49 +30,42 @@ router.post('/', async (req, res) => {
 
     const total = items.reduce((sum, item) => sum + item.price * item.qty, 0);
 
-    const order = await Order.create({
-      items,
-      total,
-      customerName,
-      phone,
-      address,
-      status: 'pending',
-    });
+    const result = await pool.query(
+      `INSERT INTO orders (items, total, customer_name, phone, address, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING *`,
+      [JSON.stringify(items), total, customerName, phone, address]
+    );
 
-    res.status(201).json(order);
+    res.status(201).json(toApiShape(result.rows[0]));
   } catch (err) {
     res.status(500).json({ error: 'Failed to create order.' });
   }
 });
 
-// POST /api/orders/:id/simulate-payment
-// Stands in for a real payment gateway callback (bKash/SSLCommerz/Stripe webhook).
-// Marks the order "paid" instantly instead of talking to a real gateway.
-// Swap this out for the real gateway's verify/webhook logic once a merchant account exists.
 router.post('/:id/simulate-payment', async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-
-    order.status = 'paid';
-    order.paymentMeta = {
+    const paymentMeta = {
       simulated: true,
       method: 'demo-gateway',
       confirmedAt: new Date().toISOString(),
     };
-    await order.save();
 
-    res.json(order);
+    const result = await pool.query(
+      `UPDATE orders SET status = 'paid', payment_meta = $1 WHERE id = $2 RETURNING *`,
+      [JSON.stringify(paymentMeta), req.params.id]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Order not found.' });
+    res.json(toApiShape(result.rows[0]));
   } catch (err) {
     res.status(500).json({ error: 'Failed to confirm payment.' });
   }
 });
 
-// GET /api/orders - admin: view all orders
 router.get('/', adminAuth, async (req, res) => {
   try {
-    const orders = await Order.find().sort({ createdAt: -1 });
-    res.json(orders);
+    const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
+    res.json(result.rows.map(toApiShape));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load orders.' });
   }
