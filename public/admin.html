@@ -77,6 +77,12 @@
   const listEl = document.getElementById('productList');
   const keyInput = document.getElementById('adminKey');
 
+   function getImageUrl(imagePath){
+    if(!imagePath) return '';
+    if(imagePath.startsWith('data:') || imagePath.startsWith('http')) return imagePath;
+    return API_BASE + imagePath;
+  }
+
   async function loadProducts(){
     const res = await fetch(`${API_BASE}/api/products`);
     const products = await res.json();
@@ -84,7 +90,7 @@
     products.forEach(p => {
       const li = document.createElement('li');
       li.innerHTML = `
-        <img src="${p.imagePath ? API_BASE + p.imagePath : ''}" alt="">
+        <img src="${getImageUrl(p.imagePath)}" alt="">
         <div class="meta"><strong>${p.name}</strong><br>${p.code} — ৳${p.price}</div>
         <button data-id="${p._id}">Delete</button>
       `;
