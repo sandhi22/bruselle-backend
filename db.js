@@ -1,7 +1,5 @@
 const { Pool } = require('pg');
 
-// Render's PostgreSQL requires SSL, but its certificate isn't in Node's default
-// trusted list, so we relax certificate verification (fine for this use case).
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -21,6 +19,13 @@ async function initDb() {
       in_stock BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT NOW()
     );
+  `);
+
+  // Add image columns to an existing products table
+  await pool.query(`
+    ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS image_data TEXT DEFAULT '',
+    ADD COLUMN IF NOT EXISTS image_type TEXT DEFAULT '';
   `);
 
   await pool.query(`

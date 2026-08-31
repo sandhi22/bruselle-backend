@@ -1,39 +1,21 @@
-```javascript
 const express = require('express');
 const multer = require('multer');
-const path = require('path');
 const { pool } = require('../db');
 const adminAuth = require('../middleware/adminAuth');
 
 const router = express.Router();
 
-// ---------- IMAGE UPLOAD ----------
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, '..', 'uploads'));
-  },
-
-  filename: function (req, file, cb) {
-    const safeName =
-      Date.now() + '-' + file.originalname.replace(/\s+/g, '-');
-
-    cb(null, safeName);
-  }
-});
-
+// Store uploaded image in memory instead of Render's filesystem
 const upload = multer({
-  storage: storage,
-
+  storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024
+    fileSize: 5 * 1024 * 1024,
   },
-
-  fileFilter: function (req, file, cb) {
+  fileFilter: (req, file, cb) => {
     const allowed = [
       'image/jpeg',
       'image/png',
-      'image/webp'
+      'image/webp',
     ];
 
     if (allowed.includes(file.mimetype)) {
@@ -41,26 +23,37 @@ const upload = multer({
     } else {
       cb(new Error('Only JPG, PNG, or WEBP images are allowed.'));
     }
-  }
+  },
 });
 
-// ---------- API SHAPE ----------
-
+// Convert database row to frontend format
 function toApiShape(row) {
+  let imagePath = '';
+
+  // New method: image stored directly in PostgreSQL
+  if (row.image_data && row.image_type) {
+    imagePath = `data:${row.image_type};base64,${row.image_data}`;
+  }
+
+  // Old method: keep existing image path as fallback
+  else if (row.image_path) {
+    imagePath = row.image_path;
+  }
+
   return {
     _id: row.id,
     name: row.name,
     code: row.code,
     price: Number(row.price),
-    description: row.description,
-    imagePath: row.image_path,
-    inStock: row.in_stock
+    description: row.description || '',
+    imagePath,
+    inStock: row.in_stock,
   };
 }
 
-// ---------- GET PRODUCTS ----------
+// ---------- GET ALL PRODUCTS ----------
 
-router.get('/', async function (req, res) {
+router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM products ORDER BY created_at DESC'
@@ -71,47 +64,66 @@ router.get('/', async function (req, res) {
     console.error('GET products error:', err);
 
     res.status(500).json({
-      error: 'Failed to load products.'
+      error: 'Failed to load products.',
     });
   }
 });
 
-// ---------- ADD PRODUCT ----------
+// ---------- CREATE PRODUCT ----------
 
 router.post(
   '/',
   adminAuth,
   upload.single('image'),
-  async function (req, res) {
+  async (req, res) => {
     try {
-      const name = req.body.name;
-      const code = req.body.code;
-      const price = req.body.price;
-      const description = req.body.description;
-      const inStock = req.body.inStock;
+      const {
+        name,
+        code,
+        price,
+        description,
+        inStock,
+      } = req.body;
 
       if (!name || !code || !price) {
         return res.status(400).json({
-          error: 'name, code, and price are required.'
+          error: 'name, code, and price are required.',
         });
       }
 
-      const imagePath = req.file
-        ? '/uploads/' + req.file.filename
-        : '';
+      let imageData = '';
+      let imageType = '';
+
+      if (req.file) {
+        imageData = req.file.buffer.toString('base64');
+        imageType = req.file.mimetype;
+      }
 
       const result = await pool.query(
-        'INSERT INTO products ' +
-        '(name, code, price, description, image_path, in_stock) ' +
-        'VALUES ($1, $2, $3, $4, $5, $6) ' +
-        'RETURNING *',
+        `INSERT INTO products
+        (
+          name,
+          code,
+          price,
+          description,
+          image_path,
+          image_data,
+          image_type,
+          in_stock
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *`,
         [
           name,
           code,
           Number(price),
           description || '',
-          imagePath,
-          inStock === undefined ? true : inStock === 'true'
+          '',
+          imageData,
+          imageType,
+          inStock === undefined
+            ? true
+            : inStock === 'true',
         ]
       );
 
@@ -123,7 +135,9 @@ router.post(
       console.error('POST product error:', err);
 
       res.status(500).json({
-        error: err.message || 'Failed to create product.'
+        error:
+          err.message ||
+          'Failed to create product.',
       });
     }
   }
@@ -135,13 +149,15 @@ router.put(
   '/:id',
   adminAuth,
   upload.single('image'),
-  async function (req, res) {
+  async (req, res) => {
     try {
-      const name = req.body.name;
-      const code = req.body.code;
-      const price = req.body.price;
-      const description = req.body.description;
-      const inStock = req.body.inStock;
+      const {
+        name,
+        code,
+        price,
+        description,
+        inStock,
+      } = req.body;
 
       const existing = await pool.query(
         'SELECT * FROM products WHERE id = $1',
@@ -150,38 +166,62 @@ router.put(
 
       if (existing.rows.length === 0) {
         return res.status(404).json({
-          error: 'Product not found.'
+          error: 'Product not found.',
         });
       }
 
       const current = existing.rows[0];
 
-      const imagePath = req.file
-        ? '/uploads/' + req.file.filename
-        : current.image_path;
+      let imageData = current.image_data || '';
+      let imageType = current.image_type || '';
+      let imagePath = current.image_path || '';
+
+      // If a new image is uploaded, replace the old image
+      if (req.file) {
+        imageData = req.file.buffer.toString('base64');
+        imageType = req.file.mimetype;
+        imagePath = '';
+      }
 
       const result = await pool.query(
-        'UPDATE products SET ' +
-        'name = $1, ' +
-        'code = $2, ' +
-        'price = $3, ' +
-        'description = $4, ' +
-        'image_path = $5, ' +
-        'in_stock = $6 ' +
-        'WHERE id = $7 ' +
-        'RETURNING *',
+        `UPDATE products
+         SET
+           name = $1,
+           code = $2,
+           price = $3,
+           description = $4,
+           image_path = $5,
+           image_data = $6,
+           image_type = $7,
+           in_stock = $8
+         WHERE id = $9
+         RETURNING *`,
         [
-          name !== undefined ? name : current.name,
-          code !== undefined ? code : current.code,
-          price !== undefined ? Number(price) : current.price,
+          name !== undefined
+            ? name
+            : current.name,
+
+          code !== undefined
+            ? code
+            : current.code,
+
+          price !== undefined
+            ? Number(price)
+            : current.price,
+
           description !== undefined
             ? description
             : current.description,
+
           imagePath,
+          imageData,
+          imageType,
+
           inStock !== undefined
             ? inStock === 'true'
             : current.in_stock,
-          req.params.id
+
+          req.params.id,
         ]
       );
 
@@ -193,7 +233,9 @@ router.put(
       console.error('PUT product error:', err);
 
       res.status(500).json({
-        error: err.message || 'Failed to update product.'
+        error:
+          err.message ||
+          'Failed to update product.',
       });
     }
   }
@@ -204,32 +246,33 @@ router.put(
 router.delete(
   '/:id',
   adminAuth,
-  async function (req, res) {
+  async (req, res) => {
     try {
       const result = await pool.query(
-        'DELETE FROM products WHERE id = $1 RETURNING id',
+        `DELETE FROM products
+         WHERE id = $1
+         RETURNING id`,
         [req.params.id]
       );
 
       if (result.rows.length === 0) {
         return res.status(404).json({
-          error: 'Product not found.'
+          error: 'Product not found.',
         });
       }
 
       res.json({
-        message: 'Product deleted.'
+        message: 'Product deleted.',
       });
 
     } catch (err) {
       console.error('DELETE product error:', err);
 
       res.status(500).json({
-        error: 'Failed to delete product.'
+        error: 'Failed to delete product.',
       });
     }
   }
 );
 
 module.exports = router;
-```
